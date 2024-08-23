@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Binance Trading Dashboard</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background-color: #121212;
+            color: #ffffff;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        h1 {
+            color: #f39c12;
+            font-size: 2rem;
+            margin-bottom: 20px;
+        }
+
+        .dashboard {
+            width: 100%;
+            max-width: 430px; /* iPhone 13 Pro Max viewport width */
+            background-color: #1e1e1e;
+            border-radius: 15px;
+            padding: 15px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+        }
+
+        .balance-info, .profit-info, .trades-info, .connection-status {
+            margin-bottom: 20px;
+        }
+
+        .info-header {
+            font-size: 1.1rem;
+            color: #f39c12;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .info-data {
+            font-size: 1.3rem;
+            color: #e0e0e0;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #333;
+            font-size: 0.9rem;
+        }
+
+        th {
+            background-color: #333;
+            color: #f39c12;
+        }
+
+        tr:hover {
+            background-color: #292929;
+        }
+
+        .positive {
+            color: #2ecc71;
+        }
+
+        .negative {
+            color: #e74c3c;
+        }
+
+        .error-message, .connection-status {
+            color: #e74c3c;
+            font-size: 1.2rem;
+            text-align: center;
+            margin-top: 20px;
+        }
+        
+        .success-message {
+            color: #2ecc71;
+            font-size: 1.2rem;
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Binance Trading Dashboard</h1>
+    <div class="dashboard">
+        <div class="connection-status" id="connectionStatus">Checking connection...</div>
+        <div class="balance-info">
+            <div class="info-header">Total Balance (BTC):</div>
+            <div class="info-data" id="totalBalance">Loading...</div>
+        </div>
+        <div class="profit-info">
+            <div class="info-header">Profit/Loss (24h):</div>
+            <div class="info-data" id="profitLoss">Loading...</div>
+        </div>
+        <div class="trades-info">
+            <div class="info-header">Recent Trades:</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Asset</th>
+                        <th>Free</th>
+                        <th>Locked</th>
+                        <th>Value (BTC)</th>
+                    </tr>
+                </thead>
+                <tbody id="tradesTable">
+                    <tr>
+                        <td colspan="4">Loading...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="error-message" id="errorMessage"></div>
+
+    <script>
+        const apiKey = 'svr8F8OcnoL2EHMpjFS7mK1Or8PSZ1nIHAJWDOdQxxKFnRFcFOTlO77HKJjQ3w8i';
+        const secretKey = 'A24ZrY6t4Ksj05EVQrrTMlCqsRIqKCe7GZrORQMR73nu7xyWkv9RPRLUNn1KgQ8S';
+
+        async function fetchAccountInfo() {
+            const endpoint = 'https://testnet.binance.vision/api/v3/account';
+            const timestamp = Date.now();
+            const queryString = `timestamp=${timestamp}`;
+            const signature = CryptoJS.HmacSHA256(queryString, secretKey).toString(CryptoJS.enc.Hex);
+
+            const url = `${endpoint}?${queryString}&signature=${signature}`;
+            const options = {
+                method: 'GET',
+                headers: {
+                    'X-MBX-APIKEY': apiKey
+                }
+            };
+
+            try {
+                const response = await fetch(url, options);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                document.getElementById('connectionStatus').textContent = "Connected to Binance successfully!";
+                document.getElementById('connectionStatus').className = "success-message";
+                return await response.json();
+            } catch (error) {
+                document.getElementById('connectionStatus').textContent = "Failed to connect to Binance.";
+                document.getElementById('connectionStatus').className = "error-message";
+                console.error('Error fetching account info:', error);
+                throw error;
+            }
+        }
+
+        async function fetchPrice(symbol) {
+            const endpoint = `https://testnet.binance.vision/api/v3/ticker/price?symbol=${symbol}`;
+            try {
+                const response = await fetch(endpoint);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                return parseFloat(data.price);
+            } catch (error) {
+                console.error('Error fetching price:', error);
+                throw error;
+            }
+        }
+
+        async function updateDashboard(accountInfo) {
+            let totalBalance = 0;
+            const tradesTable = document.getElementById('tradesTable');
+            tradesTable.innerHTML = ''; // Clear the table
+
+            for (const balance of accountInfo.balances) {
+                if (parseFloat(balance.free) > 0 || parseFloat(balance.locked) > 0) {
+                    let assetValueInBTC = 0;
+
+                    if (balance.asset !== 'BTC') {
+                        const assetPriceInBTC = await fetchPrice(`${balance.asset}BTC`);
+                        assetValueInBTC = parseFloat(balance.free) * assetPriceInBTC;
+                    } else {
+                        assetValueInBTC = parseFloat(balance.free);
+                    }
+
+                    totalBalance += assetValueInBTC;
+
+                    const row = `<tr>
+                        <td>${balance.asset}</td>
+                        <td>${parseFloat(balance.free).toFixed(6)}</td>
+                        <td>${parseFloat(balance.locked).toFixed(6)}</td>
+                        <td>${assetValueInBTC.toFixed(6)} BTC</td>
+                    </tr>`;
+                    tradesTable.insertAdjacentHTML('beforeend', row);
+                }
+            }
+
+            document.getElementById('totalBalance').textContent = totalBalance.toFixed(6) + ' BTC';
+        }
+
+        async function initializeDashboard() {
+            try {
+                const accountInfo = await fetchAccountInfo();
+                await updateDashboard(accountInfo);
+            } catch (error) {
+                console.error('Initialization failed:', error);
+            }
+        }
+
+        initializeDashboard();
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/3.1.9-1/crypto-js.js"></script>
+</body>
+</html>
